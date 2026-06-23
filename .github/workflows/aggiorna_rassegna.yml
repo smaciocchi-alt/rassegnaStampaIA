@@ -16,14 +16,15 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Scarica e scrivi la rassegna scientifica
+      - name: Scarica e scrivi la rassegna stampa italiana
         run: |
           node -e "
           const fs = require('fs');
           const https = require('https');
 
-          // URL del feed scientifico specializzato di ArXiv (Computer Science & AI)
-          const sourceUrl = 'https://rss.arxiv.org/rss/cs.AI';
+          // Query avanzata: Cerca 'Intelligenza Artificiale' limitando i risultati a fonti nazionali e divulgative serie
+          const query = encodeURIComponent('\"Intelligenza Artificiale\" (site:repubblica.it OR site:corriere.it OR site:ilsole24ore.com OR site:lastampa.it OR site:ansa.it OR site:wired.it OR site:punto-informatico.it OR site:hwupgrade.it OR site:tomshw.it OR site:agendadigitale.eu)');
+          const sourceUrl = 'https://news.google.com/rss/search?q=' + query + '&hl=it&gl=IT&ceid=IT:it';
 
           https.get(sourceUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
             let data = '';
@@ -37,55 +38,61 @@ jobs:
                 if (count >= 8) break;
                 const content = match[1];
                 
-                // Estrazione pulita di titoli scientifici
                 let title = content.match(/<title>([\s\S]*?)<\/title>/)?.[1] || '';
                 title = title.replace('<![CDATA[', '').replace(']]>', '').trim();
                 
-                const link = content.match(/<link>([\s\S]*?)<\/link>/)?.[1].trim() || '#';
-                
-                // Estrazione e pulizia del sommario del paper / articolo tecnico
-                let description = content.match(/<description>([\s\S]*?)<\/description>/)?.[1] || '';
-                description = description.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-                                         .replace(/<[^>]*>/g, '') // Rimuove tag HTML
-                                         .replace(/\n/g, ' ')
-                                         .trim();
-                
-                // Accorcia le descrizioni troppo lunghe dei paper accademici
-                if (description.length > 220) {
-                  description = description.substring(0, 217) + '...';
+                // Estrae la testata giornalistica alla fine del titolo (es. \"- Il Sole 24 Ore\")
+                let sourceName = 'Testata Nazionale';
+                const sourceMatch = title.match(/ - ([^-]+)$/);
+                if (sourceMatch) {
+                  sourceName = sourceMatch[1].trim();
+                  title = title.replace(/ - [^-]+$/, '').trim(); // Pulisce il titolo rimuovendo la fonte dal testo principale
                 }
 
-                const cleanDate = new Date().toLocaleDateString('it-IT');
+                const link = content.match(/<link>([\s\S]*?)<\/link>/)?.[1].trim() || '#';
+                
+                let description = content.match(/<description>([\s\S]*?)<\/description>/)?.[1] || '';
+                description = description.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+                                         .replace(/<[^>]*>/g, '')
+                                         .replace(/\n/g, ' ')
+                                         .trim();
+
+                // Se la descrizione di Google News contiene solo un elenco di link correlati, la sostituiamo con un testo pulito
+                if (description.length < 10 || description.includes('visualizza copertura completa')) {
+                  description = 'Approfondisci l\'analisi e leggi l\'articolo completo direttamente sulla fonte ufficiale.';
+                }
+
+                const pubDate = content.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1] || '';
+                const cleanDate = pubDate ? new Date(pubDate).toLocaleDateString('it-IT') : new Date().toLocaleDateString('it-IT');
                 
                 items.push({ 
                   title: title, 
                   link: link, 
                   date: cleanDate, 
-                  description: description 
+                  description: description + ' (Fonte: ' + sourceName + ')'
                 });
                 count++;
               }
 
-              // Se il feed ha risposto correttamente, aggiorna la pagina
               if (items.length > 0) {
                 let html = fs.readFileSync('index.html', 'utf8');
                 const jsonString = JSON.stringify(items, null, 2);
                 html = html.replace(/const newsData = \[([\s\S]*?)\];/, 'const newsData = ' + jsonString + ';');
                 fs.writeFileSync('index.html', html);
-                console.log('Rassegna tecnica aggiornata con successo con ' + items.length + ' articoli.');
+                console.log('Rassegna italiana aggiornata con successo.');
               } else {
-                console.error('Errore: Nessun articolo estratto dal feed autorevole.');
+                console.error('Nessuna notizia trovata con i filtri impostati.');
               }
             });
           }).on('error', (e) => {
-            console.error('Errore nel download del feed: ' + e.message);
+            console.error('Errore: ' + e.message);
           });
           "
 
-      - name: Commit e Push dei cambiamenti su GitHub Pages
+      - name: Commit e Push dei cambiamenti
         run: |
           git config --global user.name "GitHub Action Bot"
           git config --global user.email "actions@github.com"
           git add index.html
-          git commit -m "Automazione: Rassegna scientifico-tecnica aggiornata" || exit 0
+          git commit -m "Automazione: Rassegna stampa selezionata italiana aggiornata" || exit 0
           git push
