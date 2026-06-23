@@ -1,0 +1,68 @@
+name: Aggiornamento Automatico Rassegna Stampa
+on:
+  schedule:
+    # Si attiva automaticamente ogni giorno alle 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Ti permette di attivarlo anche a mano con un click
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Controlla il codice sorgente
+        uses: actions/checkout@v4
+
+      - name: Configura Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-state: '18'
+
+      - name: Scarica e scrivi le ultime notizie
+        run: |
+          node -e "
+          const fs = require('fs');
+          const https = require('https');
+
+          // Leggiamo il feed RSS di Google News sull'Intelligenza Artificiale
+          https.get('https://news.google.com/rss/search?q=Intelligenza+Artificiale&hl=it&gl=IT&ceid=IT:it', (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              // Semplice parsing via Regex (senza installare librerie esterne pesanti)
+              const items = [];
+              const matches = data.matchAll(/<item>([\s\S]*?)<\/item>/g);
+              let count = 0;
+              
+              for (const match of matches) {
+                if (count >= 8) break; // Prendiamo solo le prime 8 notizie
+                const content = match[1];
+                const title = content.match(/<title>([\s\S]*?)<\/title>/)?.[1].replace('<![CDATA[', '').replace(']]>', '') || '';
+                const link = content.match(/<link>([\s\S]*?)<\/link>/)?.[1] || '#';
+                const pubDate = content.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1] || '';
+                const cleanDate = new Date(pubDate).toLocaleDateString('it-IT');
+                
+                items.push({ title, link, date: cleanDate, description: 'Clicca sul titolo per leggere l\'articolo completo sulla fonte ufficiale.' });
+                count++;
+              }
+
+              // Leggiamo il file index.html originale
+              let html = fs.readFileSync('index.html', 'utf8');
+              
+              // Sostituiamo la variabile newsData con i nuovi dati freschi
+              const jsonString = JSON.stringify(items, null, 2);
+              html = html.replace(/const newsData = \[([\s\S]*?)\];/, 'const newsData = ' + jsonString + ';');
+              
+              // Salviamo il file aggiornato
+              fs.writeFileSync('index.html', html);
+              console.log('Notizie aggiornate con successo!');
+            });
+          });
+          "
+
+      - name: Commit e Push dei cambiamenti su GitHub Pages
+        run: |
+          git config --global user.name "GitHub Action Bot"
+          git config --global user.email "actions@github.com"
+          git add index.html
+          git commit -m "Automazione: Rassegna stampa aggiornata" || exit 0
+          git push
