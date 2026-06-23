@@ -2,28 +2,30 @@ name: Aggiornamento Automatico Rassegna Stampa
 on:
   schedule:
     - cron: '0 6 * * *'
-  workflow_dispatch: # Questa riga DEVE essere presente e scritta così
+  workflow_dispatch: 
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Controlla il codice sorgente
-        uses: actions/checkout@v5 # Aggiornato a v5 per supportare l'ambiente runtime recente
+        uses: actions/checkout@v5
 
       - name: Configura Node.js
-        uses: actions/setup-node@v5 # Aggiornato a v5 per rimuovere gli avvisi di deprecazione
+        uses: actions/setup-node@v5
         with:
-          node-version: '24' # Impostato direttamente sulla versione corrente dei runner di GitHub
+          node-version: '24'
 
-      - name: Scarica e scrivi le ultime notizie
+      - name: Scarica e scrivi la rassegna scientifica
         run: |
           node -e "
           const fs = require('fs');
           const https = require('https');
 
-          [cite_start]// Leggiamo il feed RSS di Google News sull'Intelligenza Artificiale [cite: 10]
-          https.get('https://news.google.com/rss/search?q=Intelligenza+Artificiale&hl=it&gl=IT&ceid=IT:it', (res) => {
+          // URL del feed scientifico specializzato di ArXiv (Computer Science & AI)
+          const sourceUrl = 'https://rss.arxiv.org/rss/cs.AI';
+
+          https.get(sourceUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
@@ -34,21 +36,49 @@ jobs:
               for (const match of matches) {
                 if (count >= 8) break;
                 const content = match[1];
-                const title = content.match(/<title>([\s\S]*?)<\/title>/)?.[1].replace('<![CDATA[', '').replace(']]>', '') || '';
-                const link = content.match(/<link>([\s\S]*?)<\/link>/)?.[1] || '#';
-                const pubDate = content.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1] || '';
-                const cleanDate = new Date(pubDate).toLocaleDateString('it-IT');
                 
-                items.push({ title, link, date: cleanDate, description: 'Clicca sul titolo per leggere l\'articolo completo sulla fonte ufficiale.' });
+                // Estrazione pulita di titoli scientifici
+                let title = content.match(/<title>([\s\S]*?)<\/title>/)?.[1] || '';
+                title = title.replace('<![CDATA[', '').replace(']]>', '').trim();
+                
+                const link = content.match(/<link>([\s\S]*?)<\/link>/)?.[1].trim() || '#';
+                
+                // Estrazione e pulizia del sommario del paper / articolo tecnico
+                let description = content.match(/<description>([\s\S]*?)<\/description>/)?.[1] || '';
+                description = description.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+                                         .replace(/<[^>]*>/g, '') // Rimuove tag HTML
+                                         .replace(/\n/g, ' ')
+                                         .trim();
+                
+                // Accorcia le descrizioni troppo lunghe dei paper accademici
+                if (description.length > 220) {
+                  description = description.substring(0, 217) + '...';
+                }
+
+                const cleanDate = new Date().toLocaleDateString('it-IT');
+                
+                items.push({ 
+                  title: title, 
+                  link: link, 
+                  date: cleanDate, 
+                  description: description 
+                });
                 count++;
               }
 
-              let html = fs.readFileSync('index.html', 'utf8');
-              const jsonString = JSON.stringify(items, null, 2);
-              html = html.replace(/const newsData = \[([\s\S]*?)\];/, 'const newsData = ' + jsonString + ';');
-              fs.writeFileSync('index.html', html);
-              console.log('Notizie aggiornate con successo!');
+              // Se il feed ha risposto correttamente, aggiorna la pagina
+              if (items.length > 0) {
+                let html = fs.readFileSync('index.html', 'utf8');
+                const jsonString = JSON.stringify(items, null, 2);
+                html = html.replace(/const newsData = \[([\s\S]*?)\];/, 'const newsData = ' + jsonString + ';');
+                fs.writeFileSync('index.html', html);
+                console.log('Rassegna tecnica aggiornata con successo con ' + items.length + ' articoli.');
+              } else {
+                console.error('Errore: Nessun articolo estratto dal feed autorevole.');
+              }
             });
+          }).on('error', (e) => {
+            console.error('Errore nel download del feed: ' + e.message);
           });
           "
 
@@ -57,5 +87,5 @@ jobs:
           git config --global user.name "GitHub Action Bot"
           git config --global user.email "actions@github.com"
           git add index.html
-          git commit -m "Automazione: Rassegna stampa aggiornata con dipendenze moderne" || exit 0
+          git commit -m "Automazione: Rassegna scientifico-tecnica aggiornata" || exit 0
           git push
