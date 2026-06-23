@@ -1,9 +1,8 @@
 name: Aggiornamento Automatico Rassegna Stampa
 on:
   schedule:
-    # Si attiva automaticamente ogni giorno alle 06:00 UTC [cite: 9]
     - cron: '0 6 * * *'
-  [cite_start]workflow_dispatch: # Ti permette di attivarlo anche a mano con un click [cite: 24]
+  workflow_dispatch: # Questa riga DEVE essere presente e scritta così
 
 jobs:
   build:
