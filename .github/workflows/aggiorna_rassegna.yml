@@ -22,9 +22,25 @@ jobs:
           const fs = require('fs');
           const https = require('https');
 
-          // Query avanzata: Cerca 'Intelligenza Artificiale' limitando i risultati a fonti nazionali e divulgative serie
           const query = encodeURIComponent('\"Intelligenza Artificiale\" (site:repubblica.it OR site:corriere.it OR site:ilsole24ore.com OR site:lastampa.it OR site:ansa.it OR site:wired.it OR site:punto-informatico.it OR site:hwupgrade.it OR site:tomshw.it OR site:agendadigitale.eu)');
           const sourceUrl = 'https://news.google.com/rss/search?q=' + query + '&hl=it&gl=IT&ceid=IT:it';
+
+          // Funzione interna per ripulire i geroglifici HTML e le entità letterali
+          function pulisciTesto(testo) {
+            if (!testo) return '';
+            return testo
+              .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1') // Rimuove blocchi CDATA
+              .replace(/<[^>]*>/g, '')                      // Rimuove qualsiasi tag HTML aperto/chiuso (es: <b>)
+              .replace(/&lt;[^&]*&gt;/g, '')                // Rimuove tag HTML mascherati (es: &lt;b&gt;)
+              .replace(/&quot;/g, '\"')                     // Sistema le virgolette doppie
+              .replace(/&amp;/g, '&')                      // Sistema la e commerciale
+              .replace(/&apos;/g, '\'')                     // Sistema l\'apostrofo
+              .replace(/&lt;/g, '<')                        // Sistema il minore
+              .replace(/&gt;/g, '>')                        // Sistema il maggiore
+              .replace(/&nbsp;/g, ' ')                      // Sistema gli spazi vuoti
+              .replace(/\n/g, ' ')                          // Rimuove gli a capo molesti
+              .trim();
+          }
 
           https.get(sourceUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
             let data = '';
@@ -39,26 +55,21 @@ jobs:
                 const content = match[1];
                 
                 let title = content.match(/<title>([\s\S]*?)<\/title>/)?.[1] || '';
-                title = title.replace('<![CDATA[', '').replace(']]>', '').trim();
+                title = pulisciTesto(title);
                 
-                // Estrae la testata giornalistica alla fine del titolo (es. \"- Il Sole 24 Ore\")
                 let sourceName = 'Testata Nazionale';
                 const sourceMatch = title.match(/ - ([^-]+)$/);
                 if (sourceMatch) {
                   sourceName = sourceMatch[1].trim();
-                  title = title.replace(/ - [^-]+$/, '').trim(); // Pulisce il titolo rimuovendo la fonte dal testo principale
+                  title = title.replace(/ - [^-]+$/, '').trim();
                 }
 
                 const link = content.match(/<link>([\s\S]*?)<\/link>/)?.[1].trim() || '#';
                 
                 let description = content.match(/<description>([\s\S]*?)<\/description>/)?.[1] || '';
-                description = description.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-                                         .replace(/<[^>]*>/g, '')
-                                         .replace(/\n/g, ' ')
-                                         .trim();
+                description = pulisciTesto(description);
 
-                // Se la descrizione di Google News contiene solo un elenco di link correlati, la sostituiamo con un testo pulito
-                if (description.length < 10 || description.includes('visualizza copertura completa')) {
+                if (description.length < 10 || description.toLowerCase().includes('visualizza copertura completa')) {
                   description = 'Approfondisci l\'analisi e leggi l\'articolo completo direttamente sulla fonte ufficiale.';
                 }
 
@@ -79,7 +90,7 @@ jobs:
                 const jsonString = JSON.stringify(items, null, 2);
                 html = html.replace(/const newsData = \[([\s\S]*?)\];/, 'const newsData = ' + jsonString + ';');
                 fs.writeFileSync('index.html', html);
-                console.log('Rassegna italiana aggiornata con successo.');
+                console.log('Rassegna italiana aggiornata e ripulita dai simboli HTML.');
               } else {
                 console.error('Nessuna notizia trovata con i filtri impostati.');
               }
@@ -94,5 +105,5 @@ jobs:
           git config --global user.name "GitHub Action Bot"
           git config --global user.email "actions@github.com"
           git add index.html
-          git commit -m "Automazione: Rassegna stampa selezionata italiana aggiornata" || exit 0
+          git commit -m "Automazione: Pulizia caratteri speciali completata" || exit 0
           git push
